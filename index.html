@@ -125,12 +125,23 @@
 
       if (busy) return;
 
-      const validAppsScriptUrl = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/]+\/)?macros\/s\/[^/]+\/exec$/.test(API_URL);
+      let parsedApiUrl;
 
-      if (!validAppsScriptUrl) {
-        status('Invalid Apps Script URL. Check that you pasted the complete deployed /exec URL.');
-        return;
-      }
+try {
+  parsedApiUrl = new URL(API_URL);
+} catch (error) {
+  status('The Apps Script URL is not a valid URL.');
+  return;
+}
+
+if (
+  parsedApiUrl.protocol !== 'https:' ||
+  parsedApiUrl.hostname !== 'script.google.com' ||
+  !parsedApiUrl.pathname.endsWith('/exec')
+) {
+  status('URL must be your deployed Google Apps Script URL ending in /exec.');
+  return;
+}
 
       busy = true;
       startButton.disabled = true;

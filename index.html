@@ -125,9 +125,10 @@
 
       if (busy) return;
 
-      if (!API_URL.startsWith('https://script.google.com/macros/s/') ||
-          !API_URL.endsWith('/exec')) {
-        status('Setup needed: paste your deployed Apps Script /exec URL into API_URL.');
+      const validAppsScriptUrl = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/]+\/)?macros\/s\/[^/]+\/exec$/.test(API_URL);
+
+      if (!validAppsScriptUrl) {
+        status('Invalid Apps Script URL. Check that you pasted the complete deployed /exec URL.');
         return;
       }
 

@@ -9,7 +9,9 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <style>
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       max-width: 500px;
@@ -21,7 +23,9 @@
       background: #f4f6f8;
     }
 
-    h2 { margin-bottom: 8px; }
+    h2 {
+      margin-bottom: 8px;
+    }
 
     #reader {
       margin: 20px auto;
@@ -45,8 +49,14 @@
       cursor: pointer;
     }
 
-    button.secondary { background: #5f6368; }
-    button:disabled { opacity: .5; }
+    button.secondary {
+      background: #5f6368;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
 
     #status {
       margin-top: 16px;
@@ -57,6 +67,28 @@
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       line-height: 1.5;
+    }
+
+    /* Red warning for previously scanned barcodes. */
+    #status.warning {
+      color: #b3261e;
+      border: 1px solid #d93025;
+      background: #fce8e6;
+      font-weight: bold;
+    }
+
+    /* Green status for successful scans. */
+    #status.success {
+      color: #137333;
+      border: 1px solid #34a853;
+      background: #e6f4ea;
+    }
+
+    /* Neutral status for loading and information. */
+    #status.info {
+      color: #202124;
+      border: 1px solid #dadce0;
+      background: white;
     }
 
     #manual {
@@ -73,158 +105,137 @@
       font-size: 16px;
     }
 
-    .hint { color: #5f6368; font-size: 13px; }
+    .hint {
+      color: #5f6368;
+      font-size: 13px;
+    }
   </style>
 </head>
 
 <body>
   <h2>Barcode Tracker</h2>
-  <p>Scan a barcode to mark its row in Google Sheets.</p>
+
+  <p>
+    Press the button to scan one barcode and update Google Sheets.
+  </p>
 
   <div id="reader"></div>
 
-  <button id="start" type="button">Start scanning</button>
-  <button id="stop" class="secondary" type="button" disabled>Stop camera</button>
+  <button id="scan" type="button">
+    Scan Barcode
+  </button>
 
-  <div id="status" role="status" aria-live="polite">
-    Ready to scan.
+  <div id="status" class="info" role="status" aria-live="polite">
+    Ready. Press Scan Barcode to activate the camera.
   </div>
 
   <div id="manual">
     <strong>Manual barcode entry</strong>
-    <input id="barcode" type="text" inputmode="numeric"
-           autocomplete="off" placeholder="Enter barcode number">
-    <button id="submit" type="button">Find and mark scanned</button>
-    <p class="hint">Use this if the camera is unavailable.</p>
+
+    <input
+      id="barcode"
+      type="text"
+      inputmode="numeric"
+      autocomplete="off"
+      placeholder="Enter barcode number"
+    >
+
+    <button id="submit" type="button">
+      Find and mark scanned
+    </button>
+
+    <p class="hint">
+      Use this if the camera is unavailable.
+    </p>
   </div>
 
   <script>
-    // IMPORTANT: Replace this with your deployed Apps Script /exec URL.
-    const API_URL = 'https://script.google.com/a/macros/tdsb.ca/s/AKfycbz7VEYQed8nI0iaB4HpCQmGDWQA7CHawQtOUFCD37beJfS9VLc0OoN4KiEFxwn4aBTL/exec';
+    // Your deployed Google Apps Script web app URL.
+    const API_URL =
+      'https://script.google.com/a/macros/tdsb.ca/s/AKfycbz7VEYQed8nI0iaB4HpCQmGDWQA7CHawQtOUFCD37beJfS9VLc0OoN4KiEFxwn4aBTL/exec';
 
     let scanner = null;
+    let scanning = false;
     let busy = false;
-    let lastCode = '';
-    let lastTime = 0;
+    let scanHandled = false;
 
-    const startButton = document.getElementById('start');
-    const stopButton = document.getElementById('stop');
+    const scanButton = document.getElementById('scan');
     const submitButton = document.getElementById('submit');
+    const barcodeInput = document.getElementById('barcode');
 
-    function status(message) {
-      document.getElementById('status').textContent = message;
+    function status(message, type = 'info') {
+      const el = document.getElementById('status');
+
+      // Use textContent so barcode values are displayed as text.
+      el.textContent = message;
+      el.classList.remove('warning', 'success', 'info');
+      el.classList.add(type);
     }
 
-    function sendBarcode(rawCode) {
-      const code = String(rawCode || '').trim();
+    async function stopCamera() {
+      const currentScanner = scanner;
 
-      if (!code) {
-        status('Enter or scan a barcode first.');
-        return;
-      }
+      scanner = null;
+      scanning = false;
 
-      if (busy) return;
+      if (!currentScanner) return;
 
-      let parsedApiUrl;
-
-try {
-  parsedApiUrl = new URL(API_URL);
-} catch (error) {
-  status('The Apps Script URL is not a valid URL.');
-  return;
-}
-
-if (
-  parsedApiUrl.protocol !== 'https:' ||
-  parsedApiUrl.hostname !== 'script.google.com' ||
-  !parsedApiUrl.pathname.endsWith('/exec')
-) {
-  status('URL must be your deployed Google Apps Script URL ending in /exec.');
-  return;
-}
-
-      busy = true;
-      startButton.disabled = true;
-      submitButton.disabled = true;
-      status('Looking up barcode: ' + code + ' ...');
-
-      const callback = 'barcodeCallback_' +
-        Date.now() + '_' + Math.floor(Math.random() * 1000000);
-
-      const script = document.createElement('script');
-      let finished = false;
-
-      const timeout = setTimeout(() => {
-        finish();
-        status('No response from Google Sheets. Check your /exec URL, deployment access, and internet connection.');
-      }, 20000);
-
-      function finish() {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timeout);
-        delete window[callback];
-        script.remove();
-        busy = false;
-        startButton.disabled = !scanner;
-        submitButton.disabled = false;
-      }
-
-      window[callback] = function(result) {
-        finish();
-
-        if (result && result.success) {
-          status('✓ ' + result.message);
-        } else {
-          status('⚠ ' + ((result && result.message) || 'Unexpected response from server.'));
+      try {
+        if (currentScanner.isScanning) {
+          await currentScanner.stop();
         }
-      };
+      } catch (error) {
+        console.warn('Camera stop error:', error);
+      }
 
-      script.onerror = function() {
-        finish();
-        status('Could not contact Google Apps Script. Check the /exec URL and deployment permissions.');
-      };
-
-      const url = new URL(API_URL);
-      url.searchParams.set('action', 'scan');
-      url.searchParams.set('barcode', code);
-      url.searchParams.set('callback', callback);
-      url.searchParams.set('_', String(Date.now()));
-
-      script.src = url.toString();
-      document.body.appendChild(script);
+      try {
+        await currentScanner.clear();
+      } catch (error) {
+        console.warn('Scanner cleanup error:', error);
+      }
     }
 
     async function startScanner() {
-      if (scanner) return;
+      if (scanning || busy) return;
 
-      startButton.disabled = true;
-      status('Requesting camera permission...');
+      if (
+        !window.isSecureContext ||
+        !navigator.mediaDevices?.getUserMedia
+      ) {
+        status(
+          'Camera access requires HTTPS and a supported browser.',
+          'warning'
+        );
+        return;
+      }
+
+      if (typeof Html5Qrcode === 'undefined') {
+        status(
+          'Scanner library failed to load. Check your internet connection.',
+          'warning'
+        );
+        return;
+      }
+
+      scanHandled = false;
+      scanning = true;
+
+      scanButton.disabled = true;
+      submitButton.disabled = true;
+
+      status('Starting camera...', 'info');
 
       try {
-        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-          throw new Error('Camera access needs a secure HTTPS page in a supported browser.');
-        }
-
-        if (typeof Html5Qrcode === 'undefined') {
-          throw new Error('Scanner library failed to load. Check your internet connection.');
-        }
-
-        // Request permission directly from this user click.
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false
-        });
-
-        stream.getTracks().forEach(track => track.stop());
-
         scanner = new Html5Qrcode('reader');
 
         await scanner.start(
           { facingMode: 'environment' },
           {
             fps: 10,
-            qrbox: { width: 280, height: 140 },
+            qrbox: {
+              width: 280,
+              height: 140
+            },
             formatsToSupport: [
               Html5QrcodeSupportedFormats.EAN_13,
               Html5QrcodeSupportedFormats.EAN_8,
@@ -236,65 +247,190 @@ if (
               Html5QrcodeSupportedFormats.CODABAR
             ]
           },
-          function(decodedText) {
-            const now = Date.now();
 
-            if (busy) return;
-            if (decodedText === lastCode && now - lastTime < 2500) return;
+          async function(decodedText) {
+            if (scanHandled || !scanning || busy) return;
 
-            lastCode = decodedText;
-            lastTime = now;
-            sendBarcode(decodedText);
+            // Only accept one successful barcode read per button press.
+            scanHandled = true;
+            scanning = false;
+
+            const code = String(decodedText).trim();
+
+            // Turn off the camera before contacting Google Sheets.
+            await stopCamera();
+
+            status(
+              'Barcode detected: ' + code +
+              '\nUpdating Google Sheets...',
+              'info'
+            );
+
+            sendBarcode(code);
           },
-          function() {}
+
+          function() {
+            // Ignore frames where no barcode is detected.
+          }
         );
 
-        stopButton.disabled = false;
-        status('Camera is on. Point it at a barcode.');
+        status(
+          'Camera ready. Point it at one barcode.',
+          'info'
+        );
 
       } catch (error) {
-        console.error(error);
+        console.error('Camera error:', error);
 
-        if (scanner) {
-          try {
-            if (scanner.isScanning) await scanner.stop();
-            await scanner.clear();
-          } catch (_) {}
-        }
+        await stopCamera();
 
-        scanner = null;
-        stopButton.disabled = true;
-        startButton.disabled = false;
-        status('Camera could not start: ' + error.name + '\n' + error.message);
+        scanButton.disabled = false;
+        submitButton.disabled = false;
+
+        status(
+          'Camera could not start:\n' + error.message,
+          'warning'
+        );
       }
     }
 
-    async function stopScanner() {
-      if (!scanner) return;
+    function sendBarcode(rawCode) {
+      const code = String(rawCode || '').trim();
 
-      stopButton.disabled = true;
+      if (!code) {
+        status('Enter or scan a barcode first.', 'warning');
+        scanButton.disabled = false;
+        submitButton.disabled = false;
+        return;
+      }
+
+      if (busy) return;
+
+      let parsedApiUrl;
 
       try {
-        if (scanner.isScanning) await scanner.stop();
-        await scanner.clear();
+        parsedApiUrl = new URL(API_URL);
       } catch (error) {
-        console.warn(error);
+        status('The Apps Script URL is invalid.', 'warning');
+        scanButton.disabled = false;
+        submitButton.disabled = false;
+        return;
       }
 
-      scanner = null;
-      startButton.disabled = false;
-      status('Camera stopped. Tap Start scanning to resume.');
+      if (
+        parsedApiUrl.protocol !== 'https:' ||
+        parsedApiUrl.hostname !== 'script.google.com' ||
+        !parsedApiUrl.pathname.endsWith('/exec')
+      ) {
+        status(
+          'Use a valid deployed Apps Script URL ending in /exec.',
+          'warning'
+        );
+        scanButton.disabled = false;
+        submitButton.disabled = false;
+        return;
+      }
+
+      busy = true;
+
+      scanButton.disabled = true;
+      submitButton.disabled = true;
+
+      status('Looking up barcode: ' + code + ' ...', 'info');
+
+      const callback =
+        'barcodeCallback_' +
+        Date.now() + '_' +
+        Math.floor(Math.random() * 1000000);
+
+      const script = document.createElement('script');
+
+      let finished = false;
+
+      const timeout = setTimeout(function() {
+        finish();
+
+        status(
+          'No response from Google Sheets.\n' +
+          'Check your /exec URL, deployment access, and internet connection.',
+          'warning'
+        );
+      }, 20000);
+
+      function finish() {
+        if (finished) return;
+
+        finished = true;
+
+        clearTimeout(timeout);
+        delete window[callback];
+        script.remove();
+
+        busy = false;
+
+        scanButton.disabled = false;
+        submitButton.disabled = false;
+      }
+
+      window[callback] = function(result) {
+        finish();
+
+        if (result && result.alreadyScanned) {
+          // Show the duplicate barcode warning in red.
+          status(
+            '⚠ ' + code + ' already scanned.',
+            'warning'
+          );
+
+        } else if (result && result.success) {
+          status(
+            '✓ ' + result.message +
+            '\n\nReady for the next barcode.',
+            'success'
+          );
+
+        } else {
+          status(
+            '⚠ ' +
+            ((result && result.message) ||
+              'Unexpected response from server.'),
+            'warning'
+          );
+        }
+      };
+
+      script.onerror = function() {
+        finish();
+
+        status(
+          'Could not contact Google Apps Script.\n' +
+          'Check the /exec URL and deployment permissions.',
+          'warning'
+        );
+      };
+
+      const url = new URL(API_URL);
+
+      url.searchParams.set('action', 'scan');
+      url.searchParams.set('barcode', code);
+      url.searchParams.set('callback', callback);
+      url.searchParams.set('_', String(Date.now()));
+
+      script.src = url.toString();
+      document.body.appendChild(script);
     }
 
-    startButton.addEventListener('click', startScanner);
-    stopButton.addEventListener('click', stopScanner);
+    // Camera starts only when this button is pressed.
+    scanButton.addEventListener('click', startScanner);
 
+    // Manual barcode entry.
     submitButton.addEventListener('click', function() {
-      sendBarcode(document.getElementById('barcode').value);
+      sendBarcode(barcodeInput.value);
     });
 
-    document.getElementById('barcode').addEventListener('keydown', function(event) {
+    barcodeInput.addEventListener('keydown', function(event) {
       if (event.key === 'Enter') {
+        event.preventDefault();
         sendBarcode(this.value);
       }
     });

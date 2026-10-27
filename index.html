@@ -1,0 +1,291 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Barcode Tracker</title>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px 16px;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      color: #202124;
+      background: #f4f6f8;
+    }
+
+    h2 { margin-bottom: 8px; }
+
+    #reader {
+      margin: 20px auto;
+      width: 100%;
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    button {
+      display: block;
+      width: 100%;
+      padding: 15px;
+      margin: 8px 0;
+      border: 0;
+      border-radius: 10px;
+      background: #1967d2;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button.secondary { background: #5f6368; }
+    button:disabled { opacity: .5; }
+
+    #status {
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 10px;
+      background: white;
+      border: 1px solid #dadce0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      line-height: 1.5;
+    }
+
+    #manual {
+      margin-top: 20px;
+      padding: 14px;
+      background: white;
+      border-radius: 10px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      font-size: 16px;
+    }
+
+    .hint { color: #5f6368; font-size: 13px; }
+  </style>
+</head>
+
+<body>
+  <h2>Barcode Tracker</h2>
+  <p>Scan a barcode to mark its row in Google Sheets.</p>
+
+  <div id="reader"></div>
+
+  <button id="start" type="button">Start scanning</button>
+  <button id="stop" class="secondary" type="button" disabled>Stop camera</button>
+
+  <div id="status" role="status" aria-live="polite">
+    Ready to scan.
+  </div>
+
+  <div id="manual">
+    <strong>Manual barcode entry</strong>
+    <input id="barcode" type="text" inputmode="numeric"
+           autocomplete="off" placeholder="Enter barcode number">
+    <button id="submit" type="button">Find and mark scanned</button>
+    <p class="hint">Use this if the camera is unavailable.</p>
+  </div>
+
+  <script>
+    // IMPORTANT: Replace this with your deployed Apps Script /exec URL.
+    const API_URL = 'https://script.google.com/a/macros/tdsb.ca/s/AKfycbz7VEYQed8nI0iaB4HpCQmGDWQA7CHawQtOUFCD37beJfS9VLc0OoN4KiEFxwn4aBTL/exec';
+
+    let scanner = null;
+    let busy = false;
+    let lastCode = '';
+    let lastTime = 0;
+
+    const startButton = document.getElementById('start');
+    const stopButton = document.getElementById('stop');
+    const submitButton = document.getElementById('submit');
+
+    function status(message) {
+      document.getElementById('status').textContent = message;
+    }
+
+    function sendBarcode(rawCode) {
+      const code = String(rawCode || '').trim();
+
+      if (!code) {
+        status('Enter or scan a barcode first.');
+        return;
+      }
+
+      if (busy) return;
+
+      if (!API_URL.startsWith('https://script.google.com/macros/s/') ||
+          !API_URL.endsWith('/exec')) {
+        status('Setup needed: paste your deployed Apps Script /exec URL into API_URL.');
+        return;
+      }
+
+      busy = true;
+      startButton.disabled = true;
+      submitButton.disabled = true;
+      status('Looking up barcode: ' + code + ' ...');
+
+      const callback = 'barcodeCallback_' +
+        Date.now() + '_' + Math.floor(Math.random() * 1000000);
+
+      const script = document.createElement('script');
+      let finished = false;
+
+      const timeout = setTimeout(() => {
+        finish();
+        status('No response from Google Sheets. Check your /exec URL, deployment access, and internet connection.');
+      }, 20000);
+
+      function finish() {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeout);
+        delete window[callback];
+        script.remove();
+        busy = false;
+        startButton.disabled = !scanner;
+        submitButton.disabled = false;
+      }
+
+      window[callback] = function(result) {
+        finish();
+
+        if (result && result.success) {
+          status('✓ ' + result.message);
+        } else {
+          status('⚠ ' + ((result && result.message) || 'Unexpected response from server.'));
+        }
+      };
+
+      script.onerror = function() {
+        finish();
+        status('Could not contact Google Apps Script. Check the /exec URL and deployment permissions.');
+      };
+
+      const url = new URL(API_URL);
+      url.searchParams.set('action', 'scan');
+      url.searchParams.set('barcode', code);
+      url.searchParams.set('callback', callback);
+      url.searchParams.set('_', String(Date.now()));
+
+      script.src = url.toString();
+      document.body.appendChild(script);
+    }
+
+    async function startScanner() {
+      if (scanner) return;
+
+      startButton.disabled = true;
+      status('Requesting camera permission...');
+
+      try {
+        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Camera access needs a secure HTTPS page in a supported browser.');
+        }
+
+        if (typeof Html5Qrcode === 'undefined') {
+          throw new Error('Scanner library failed to load. Check your internet connection.');
+        }
+
+        // Request permission directly from this user click.
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+
+        stream.getTracks().forEach(track => track.stop());
+
+        scanner = new Html5Qrcode('reader');
+
+        await scanner.start(
+          { facingMode: 'environment' },
+          {
+            fps: 10,
+            qrbox: { width: 280, height: 140 },
+            formatsToSupport: [
+              Html5QrcodeSupportedFormats.EAN_13,
+              Html5QrcodeSupportedFormats.EAN_8,
+              Html5QrcodeSupportedFormats.UPC_A,
+              Html5QrcodeSupportedFormats.UPC_E,
+              Html5QrcodeSupportedFormats.CODE_128,
+              Html5QrcodeSupportedFormats.CODE_39,
+              Html5QrcodeSupportedFormats.ITF,
+              Html5QrcodeSupportedFormats.CODABAR
+            ]
+          },
+          function(decodedText) {
+            const now = Date.now();
+
+            if (busy) return;
+            if (decodedText === lastCode && now - lastTime < 2500) return;
+
+            lastCode = decodedText;
+            lastTime = now;
+            sendBarcode(decodedText);
+          },
+          function() {}
+        );
+
+        stopButton.disabled = false;
+        status('Camera is on. Point it at a barcode.');
+
+      } catch (error) {
+        console.error(error);
+
+        if (scanner) {
+          try {
+            if (scanner.isScanning) await scanner.stop();
+            await scanner.clear();
+          } catch (_) {}
+        }
+
+        scanner = null;
+        stopButton.disabled = true;
+        startButton.disabled = false;
+        status('Camera could not start: ' + error.name + '\n' + error.message);
+      }
+    }
+
+    async function stopScanner() {
+      if (!scanner) return;
+
+      stopButton.disabled = true;
+
+      try {
+        if (scanner.isScanning) await scanner.stop();
+        await scanner.clear();
+      } catch (error) {
+        console.warn(error);
+      }
+
+      scanner = null;
+      startButton.disabled = false;
+      status('Camera stopped. Tap Start scanning to resume.');
+    }
+
+    startButton.addEventListener('click', startScanner);
+    stopButton.addEventListener('click', stopScanner);
+
+    submitButton.addEventListener('click', function() {
+      sendBarcode(document.getElementById('barcode').value);
+    });
+
+    document.getElementById('barcode').addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') {
+        sendBarcode(this.value);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -369,4 +369,286 @@
     const menuSection = document.getElementById('menu-section');
     const scannerSection = document.getElementById('scanner-section');
     const modeBadge = document.getElementById('mode-badge');
-    const statusBox = document.getElementById('
+    const statusBox = document.getElementById('status-box');
+    const modalOverlay = document.getElementById('modal-overlay');
+
+    // --- JSONP HELPER ---
+    function makeJsonpRequest(action, barcode) {
+      return new Promise((resolve, reject) => {
+        const callbackName = 'jsonp_cb_' + Math.random().toString(36).substring(2, 11);
+        const script = document.createElement('script');
+
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('Request timed out. Please check your network connection.'));
+        }, 12000);
+
+        function cleanup() {
+          if (timeout) clearTimeout(timeout);
+          if (script.parentNode) script.parentNode.removeChild(script);
+          delete window[callbackName];
+        }
+
+        window[callbackName] = function(data) {
+          cleanup();
+          resolve(data);
+        };
+
+        const params = new URLSearchParams({
+          action: action,
+          barcode: barcode,
+          callback: callbackName
+        });
+
+        script.src = `${API_URL}?${params.toString()}`;
+        script.onerror = function() {
+          cleanup();
+          reject(new Error('Network error or invalid server response.'));
+        };
+
+        document.body.appendChild(script);
+      });
+    }
+
+    // --- STATUS DISPLAY ---
+    function showStatus(text, type = 'info', autoHideMs = 4000) {
+      statusBox.className = `status-msg status-${type}`;
+      statusBox.textContent = text;
+      statusBox.style.display = 'block';
+
+      if (autoHideMs > 0) {
+        setTimeout(() => {
+          if (statusBox.textContent === text) {
+            statusBox.style.display = 'none';
+          }
+        }, autoHideMs);
+      }
+    }
+
+    // --- SESSION MANAGEMENT ---
+    async function startSession(mode) {
+      currentMode = mode;
+      isScanningActive = true;
+
+      // Update Header Badge
+      modeBadge.textContent = mode === 'register' ? 'Registration Mode' : 'Lunch Tracker Mode';
+      modeBadge.className = `mode-indicator ${mode === 'register' ? 'mode-register' : 'mode-lunch'}`;
+
+      // Toggle Views
+      menuSection.style.display = 'none';
+      scannerSection.style.display = 'flex';
+      showStatus(`Camera starting for ${mode}...`, 'info');
+
+      try {
+        if (!html5QrcodeScanner) {
+          html5QrcodeScanner = new Html5Qrcode("reader", { formatsToSupport: FORMATS });
+        }
+
+        const config = {
+          fps: 10,
+          qrbox: { width: 250, height: 150 },
+          aspectRatio: 1.0
+        };
+
+        await html5QrcodeScanner.start(
+          { facingMode: "environment" },
+          config,
+          onBarcodeScanned,
+          () => {} // Ignore scan errors per frame
+        );
+
+        showStatus(`Ready to scan for ${mode}.`, 'info');
+      } catch (err) {
+        console.error('Camera launch error:', err);
+        showStatus('Failed to access camera. You can still use manual entry below.', 'error', 0);
+      }
+    }
+
+    async function stopSession() {
+      isScanningActive = false;
+      closeModal(false);
+
+      if (html5QrcodeScanner) {
+        try {
+          const state = html5QrcodeScanner.getState();
+          if (state === Html5QrcodeScannerState.SCANNING || state === Html5QrcodeScannerState.PAUSED) {
+            await html5QrcodeScanner.stop();
+          }
+        } catch (e) {
+          console.warn('Error stopping scanner:', e);
+        }
+      }
+
+      currentMode = null;
+      isProcessing = false;
+
+      // Reset UI
+      modeBadge.textContent = 'Select Mode';
+      modeBadge.className = 'mode-indicator mode-none';
+      scannerSection.style.display = 'none';
+      menuSection.style.display = 'flex';
+      showStatus('Scanning session ended.', 'info');
+    }
+
+    // --- SCANNER CALLBACK ---
+    async function onBarcodeScanned(decodedText) {
+      if (isProcessing || !isScanningActive) return;
+      isProcessing = true;
+
+      // Pause camera during processing
+      try {
+        if (html5QrcodeScanner && html5QrcodeScanner.getState() === Html5QrcodeScannerState.SCANNING) {
+          await html5QrcodeScanner.pause(true);
+        }
+      } catch (e) {
+        console.warn('Unable to pause camera:', e);
+      }
+
+      await processBarcode(decodedText.trim());
+    }
+
+    function handleManualSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('manual-input');
+      const val = input.value.trim();
+      if (!val || isProcessing) return;
+
+      isProcessing = true;
+      input.value = '';
+
+      // Pause camera if running
+      try {
+        if (html5QrcodeScanner && html5QrcodeScanner.getState() === Html5QrcodeScannerState.SCANNING) {
+          html5QrcodeScanner.pause(true);
+        }
+      } catch (e) {}
+
+      processBarcode(val);
+    }
+
+    // --- CORE WORKFLOW ---
+    async function processBarcode(barcode) {
+      showStatus(`Looking up barcode ${barcode}...`, 'info', 0);
+
+      try {
+        const response = await makeJsonpRequest('lookup', barcode);
+
+        if (!response.success) {
+          showStatus(response.message || `Barcode ${barcode} not found.`, 'error', 5000);
+          await resumeCamera();
+          return;
+        }
+
+        // Check for prior completion per requested operation
+        if (currentMode === 'register' && response.checkedIn) {
+          showStatus(`⚠️ ${response.first} ${response.last} is ALREADY registered!`, 'warning', 5000);
+          await resumeCamera();
+          return;
+        }
+
+        if (currentMode === 'lunch' && response.lunchLogged) {
+          showStatus(`⚠️ Lunch has ALREADY been logged for ${response.first} ${response.last}!`, 'warning', 5000);
+          await resumeCamera();
+          return;
+        }
+
+        // Save state and construct popup
+        currentParticipant = response;
+        openModal(response);
+
+      } catch (err) {
+        console.error('Lookup failed:', err);
+        showStatus('Network error during lookup. Please try again.', 'error', 5000);
+        await resumeCamera();
+      }
+    }
+
+    // --- MODAL / POPUP INTERACTION ---
+    function openModal(data) {
+      document.getElementById('modal-barcode-display').textContent = `ID: ${data.barcode}`;
+      document.getElementById('person-name').textContent = `${data.first} ${data.last}`;
+      document.getElementById('person-school').textContent = data.school || 'N/A';
+
+      const confirmBtn = document.getElementById('confirm-btn');
+
+      if (currentMode === 'register') {
+        document.getElementById('modal-title').textContent = 'Confirm Registration';
+        document.getElementById('dynamic-label').textContent = 'Media Consent';
+        document.getElementById('dynamic-value').textContent = data.mediaConsent || 'N/A';
+        
+        confirmBtn.textContent = 'Register';
+        confirmBtn.className = 'btn btn-primary';
+      } else {
+        document.getElementById('modal-title').textContent = 'Confirm Lunch Logging';
+        document.getElementById('dynamic-label').textContent = 'Dietary Restrictions';
+        document.getElementById('dynamic-value').textContent = data.dietaryRestrictions || 'None';
+        
+        confirmBtn.textContent = 'Log';
+        confirmBtn.className = 'btn btn-warning';
+      }
+
+      confirmBtn.disabled = false;
+      modalOverlay.style.display = 'flex';
+    }
+
+    function closeModal(shouldResumeCamera = true) {
+      modalOverlay.style.display = 'none';
+      currentParticipant = null;
+      if (shouldResumeCamera) {
+        resumeCamera();
+      }
+    }
+
+    async function confirmAction() {
+      if (!currentParticipant || !currentMode) return;
+
+      const confirmBtn = document.getElementById('confirm-btn');
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = '<span class="spinner"></span> Saving...';
+
+      const actionTarget = currentMode; // 'register' or 'lunch'
+      const barcode = currentParticipant.barcode;
+
+      try {
+        const response = await makeJsonpRequest(actionTarget, barcode);
+
+        if (response.success) {
+          const modeLabel = currentMode === 'register' ? 'Registered' : 'Lunch Logged';
+          showStatus(`✅ ${currentParticipant.first} ${currentParticipant.last} - ${modeLabel} successfully!`, 'success', 4000);
+          modalOverlay.style.display = 'none';
+          currentParticipant = null;
+          await resumeCamera();
+        } else if (response.alreadyDone) {
+          showStatus(`⚠️ ${response.message}`, 'warning', 5000);
+          modalOverlay.style.display = 'none';
+          currentParticipant = null;
+          await resumeCamera();
+        } else {
+          showStatus(`❌ Update failed: ${response.message}`, 'error', 5000);
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = currentMode === 'register' ? 'Register' : 'Log';
+        }
+      } catch (err) {
+        console.error('Update request error:', err);
+        showStatus('Network error while updating record. Try again.', 'error', 5000);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = currentMode === 'register' ? 'Register' : 'Log';
+      }
+    }
+
+    // --- HELPER TO RESUME SCANNING ---
+    async function resumeCamera() {
+      isProcessing = false;
+      if (!isScanningActive) return;
+
+      try {
+        if (html5QrcodeScanner && html5QrcodeScanner.getState() === Html5QrcodeScannerState.PAUSED) {
+          await html5QrcodeScanner.resume();
+        }
+      } catch (e) {
+        console.warn('Camera resume error:', e);
+      }
+    }
+  </script>
+</body>
+</html>

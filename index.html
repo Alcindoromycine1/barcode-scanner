@@ -1,439 +1,372 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Barcode Tracker</title>
-
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Barcode Registration & Lunch Tracker</title>
+  
+  <!-- html5-qrcode library -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --border: #e2e8f0;
+    }
+
     * {
       box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
     body {
-      max-width: 500px;
-      margin: 0 auto;
-      padding: 20px 16px;
-      font-family: Arial, sans-serif;
-      text-align: center;
-      color: #202124;
-      background: #f4f6f8;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
     }
 
-    h2 {
-      margin-bottom: 8px;
-    }
-
-    #reader {
-      margin: 20px auto;
+    .container {
       width: 100%;
-      background: white;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    header {
+      text-align: center;
+      padding: 8px 0;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .mode-indicator {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .mode-none { background-color: #e2e8f0; color: #475569; }
+    .mode-register { background-color: #dbeafe; color: #1e40af; }
+    .mode-lunch { background-color: #fef3c7; color: #92400e; }
+
+    /* Home View */
+    .menu-card {
+      background: var(--card-bg);
       border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-primary:hover { background: var(--primary-hover); }
+
+    .btn-warning { background: var(--warning); color: white; }
+    .btn-warning:hover { background: #b45309; }
+
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+
+    .btn-secondary { background: #64748b; color: white; }
+    .btn-secondary:hover { background: #475569; }
+
+    /* Scanner View */
+    #scanner-section {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .scanner-card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
       overflow: hidden;
     }
 
-    button {
-      display: block;
+    #reader {
       width: 100%;
-      padding: 15px;
-      margin: 8px 0;
-      border: 0;
-      border-radius: 10px;
-      background: #1967d2;
-      color: white;
-      font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
     }
 
-    button.secondary {
-      background: #5f6368;
+    #reader video {
+      object-fit: cover;
     }
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    /* Manual Input Form */
+    .manual-form {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
     }
 
-    #status {
-      margin-top: 16px;
-      padding: 16px;
-      border-radius: 10px;
-      background: white;
-      border: 1px solid #dadce0;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      line-height: 1.5;
-    }
-
-    /* Red warning for previously scanned barcodes. */
-    #status.warning {
-      color: #b3261e;
-      border: 1px solid #d93025;
-      background: #fce8e6;
-      font-weight: bold;
-    }
-
-    /* Green status for successful scans. */
-    #status.success {
-      color: #137333;
-      border: 1px solid #34a853;
-      background: #e6f4ea;
-    }
-
-    /* Neutral status for loading and information. */
-    #status.info {
-      color: #202124;
-      border: 1px solid #dadce0;
-      background: white;
-    }
-
-    #manual {
-      margin-top: 20px;
-      padding: 14px;
-      background: white;
-      border-radius: 10px;
-    }
-
-    input {
-      width: 100%;
+    .manual-form input {
+      flex: 1;
       padding: 12px;
-      margin: 8px 0;
-      font-size: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
     }
 
-    .hint {
-      color: #5f6368;
-      font-size: 13px;
+    .manual-form input:focus {
+      border-color: var(--primary);
+    }
+
+    .manual-form button {
+      padding: 12px 20px;
+      white-space: nowrap;
+    }
+
+    /* Feedback Banner */
+    .status-msg {
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      display: none;
+      text-align: center;
+    }
+
+    .status-info { background: #e0f2fe; color: #0369a1; }
+    .status-success { background: #dcfce7; color: #15803d; }
+    .status-warning { background: #fef3c7; color: #b45309; }
+    .status-error { background: #fee2e2; color: #b91c1c; }
+
+    /* Modal / Popup */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 1000;
+    }
+
+    .modal-card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 420px;
+      padding: 24px;
+      box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      animation: modalSlide 0.2s ease-out;
+    }
+
+    @keyframes modalSlide {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .modal-header h2 {
+      font-size: 1.3rem;
+      color: var(--text);
+    }
+
+    .modal-header p {
+      font-size: 0.875rem;
+      color: #64748b;
+    }
+
+    .modal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: #f8fafc;
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .data-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .data-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.05em;
+    }
+
+    .data-value {
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
   </style>
 </head>
-
 <body>
-  <h2>Barcode Tracker</h2>
 
-  <p>
-    Press the button to scan one barcode and update Google Sheets.
-  </p>
+  <div class="container">
+    <header>
+      <h1>Event Scanner</h1>
+      <span id="mode-badge" class="mode-indicator mode-none">Select Mode</span>
+    </header>
 
-  <div id="reader"></div>
+    <!-- STATUS MESSAGES -->
+    <div id="status-box" class="status-msg"></div>
 
-  <button id="scan" type="button">
-    Scan Barcode
-  </button>
+    <!-- MAIN MENU -->
+    <div id="menu-section" class="menu-card">
+      <button class="btn btn-primary" onclick="startSession('register')">
+        📷 Event Registration
+      </button>
+      <button class="btn btn-warning" onclick="startSession('lunch')">
+        🍱 Lunch Distribution
+      </button>
+    </div>
 
-  <div id="status" class="info" role="status" aria-live="polite">
-    Ready. Press Scan Barcode to activate the camera.
+    <!-- SCANNER SECTION -->
+    <div id="scanner-section">
+      <div class="scanner-card">
+        <div id="reader"></div>
+
+        <form class="manual-form" onsubmit="handleManualSubmit(event)">
+          <input type="text" id="manual-input" placeholder="Enter barcode manually..." autocomplete="off" />
+          <button type="submit" class="btn btn-secondary">Submit</button>
+        </form>
+      </div>
+
+      <button class="btn btn-danger" onclick="stopSession()">Stop Scanning</button>
+    </div>
   </div>
 
-  <div id="manual">
-    <strong>Manual barcode entry</strong>
+  <!-- PARTICIPANT POPUP MODAL -->
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modal-title">Participant Found</h2>
+        <p id="modal-barcode-display">ID: ---</p>
+      </div>
 
-    <input
-      id="barcode"
-      type="text"
-      inputmode="numeric"
-      autocomplete="off"
-      placeholder="Enter barcode number"
-    >
+      <div class="modal-body">
+        <div class="data-row">
+          <span class="data-label">Full Name</span>
+          <span class="data-value" id="person-name">---</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Organization / School</span>
+          <span class="data-value" id="person-school">---</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label" id="dynamic-label">Consent / Restrictions</span>
+          <span class="data-value" id="dynamic-value">---</span>
+        </div>
+      </div>
 
-    <button id="submit" type="button">
-      Find and mark scanned
-    </button>
-
-    <p class="hint">
-      Use this if the camera is unavailable.
-    </p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal(true)">Cancel</button>
+        <button id="confirm-btn" class="btn btn-primary" onclick="confirmAction()">
+          Confirm
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
-    // Your deployed Google Apps Script web app URL.
-    const API_URL =
-      'https://script.google.com/a/macros/tdsb.ca/s/AKfycbz7VEYQed8nI0iaB4HpCQmGDWQA7CHawQtOUFCD37beJfS9VLc0OoN4KiEFxwn4aBTL/exec';
+    // --- CONFIGURATION ---
+    const API_URL = 'https://script.google.com/a/macros/tdsb.ca/s/AKfycbz7VEYQed8nI0iaB4HpCQmGDWQA7CHawQtOUFCD37beJfS9VLc0OoN4KiEFxwn4aBTL/exec';
+    
+    // Supported barcode formats
+    const FORMATS = [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.ITF,
+      Html5QrcodeSupportedFormats.CODABAR
+    ];
 
-    let scanner = null;
-    let scanning = false;
-    let busy = false;
-    let scanHandled = false;
+    // --- GLOBAL STATE ---
+    let html5QrcodeScanner = null;
+    let currentMode = null; // 'register' or 'lunch'
+    let isProcessing = false;
+    let isScanningActive = false;
+    let currentParticipant = null;
 
-    const scanButton = document.getElementById('scan');
-    const submitButton = document.getElementById('submit');
-    const barcodeInput = document.getElementById('barcode');
-
-    function status(message, type = 'info') {
-      const el = document.getElementById('status');
-
-      // Use textContent so barcode values are displayed as text.
-      el.textContent = message;
-      el.classList.remove('warning', 'success', 'info');
-      el.classList.add(type);
-    }
-
-    async function stopCamera() {
-      const currentScanner = scanner;
-
-      scanner = null;
-      scanning = false;
-
-      if (!currentScanner) return;
-
-      try {
-        if (currentScanner.isScanning) {
-          await currentScanner.stop();
-        }
-      } catch (error) {
-        console.warn('Camera stop error:', error);
-      }
-
-      try {
-        await currentScanner.clear();
-      } catch (error) {
-        console.warn('Scanner cleanup error:', error);
-      }
-    }
-
-    async function startScanner() {
-      if (scanning || busy) return;
-
-      if (
-        !window.isSecureContext ||
-        !navigator.mediaDevices?.getUserMedia
-      ) {
-        status(
-          'Camera access requires HTTPS and a supported browser.',
-          'warning'
-        );
-        return;
-      }
-
-      if (typeof Html5Qrcode === 'undefined') {
-        status(
-          'Scanner library failed to load. Check your internet connection.',
-          'warning'
-        );
-        return;
-      }
-
-      scanHandled = false;
-      scanning = true;
-
-      scanButton.disabled = true;
-      submitButton.disabled = true;
-
-      status('Starting camera...', 'info');
-
-      try {
-        scanner = new Html5Qrcode('reader');
-
-        await scanner.start(
-          { facingMode: 'environment' },
-          {
-            fps: 10,
-            qrbox: {
-              width: 280,
-              height: 140
-            },
-            formatsToSupport: [
-              Html5QrcodeSupportedFormats.EAN_13,
-              Html5QrcodeSupportedFormats.EAN_8,
-              Html5QrcodeSupportedFormats.UPC_A,
-              Html5QrcodeSupportedFormats.UPC_E,
-              Html5QrcodeSupportedFormats.CODE_128,
-              Html5QrcodeSupportedFormats.CODE_39,
-              Html5QrcodeSupportedFormats.ITF,
-              Html5QrcodeSupportedFormats.CODABAR
-            ]
-          },
-
-          async function(decodedText) {
-            if (scanHandled || !scanning || busy) return;
-
-            // Only accept one successful barcode read per button press.
-            scanHandled = true;
-            scanning = false;
-
-            const code = String(decodedText).trim();
-
-            // Turn off the camera before contacting Google Sheets.
-            await stopCamera();
-
-            status(
-              'Barcode detected: ' + code +
-              '\nUpdating Google Sheets...',
-              'info'
-            );
-
-            sendBarcode(code);
-          },
-
-          function() {
-            // Ignore frames where no barcode is detected.
-          }
-        );
-
-        status(
-          'Camera ready. Point it at one barcode.',
-          'info'
-        );
-
-      } catch (error) {
-        console.error('Camera error:', error);
-
-        await stopCamera();
-
-        scanButton.disabled = false;
-        submitButton.disabled = false;
-
-        status(
-          'Camera could not start:\n' + error.message,
-          'warning'
-        );
-      }
-    }
-
-    function sendBarcode(rawCode) {
-      const code = String(rawCode || '').trim();
-
-      if (!code) {
-        status('Enter or scan a barcode first.', 'warning');
-        scanButton.disabled = false;
-        submitButton.disabled = false;
-        return;
-      }
-
-      if (busy) return;
-
-      let parsedApiUrl;
-
-      try {
-        parsedApiUrl = new URL(API_URL);
-      } catch (error) {
-        status('The Apps Script URL is invalid.', 'warning');
-        scanButton.disabled = false;
-        submitButton.disabled = false;
-        return;
-      }
-
-      if (
-        parsedApiUrl.protocol !== 'https:' ||
-        parsedApiUrl.hostname !== 'script.google.com' ||
-        !parsedApiUrl.pathname.endsWith('/exec')
-      ) {
-        status(
-          'Use a valid deployed Apps Script URL ending in /exec.',
-          'warning'
-        );
-        scanButton.disabled = false;
-        submitButton.disabled = false;
-        return;
-      }
-
-      busy = true;
-
-      scanButton.disabled = true;
-      submitButton.disabled = true;
-
-      status('Looking up barcode: ' + code + ' ...', 'info');
-
-      const callback =
-        'barcodeCallback_' +
-        Date.now() + '_' +
-        Math.floor(Math.random() * 1000000);
-
-      const script = document.createElement('script');
-
-      let finished = false;
-
-      const timeout = setTimeout(function() {
-        finish();
-
-        status(
-          'No response from Google Sheets.\n' +
-          'Check your /exec URL, deployment access, and internet connection.',
-          'warning'
-        );
-      }, 20000);
-
-      function finish() {
-        if (finished) return;
-
-        finished = true;
-
-        clearTimeout(timeout);
-        delete window[callback];
-        script.remove();
-
-        busy = false;
-
-        scanButton.disabled = false;
-        submitButton.disabled = false;
-      }
-
-      window[callback] = function(result) {
-        finish();
-
-        if (result && result.alreadyScanned) {
-          // Show the duplicate barcode warning in red.
-          status(
-            '⚠ ' + code + ' already scanned.',
-            'warning'
-          );
-
-        } else if (result && result.success) {
-          status(
-            '✓ ' + result.message +
-            '\n\nReady for the next barcode.',
-            'success'
-          );
-
-        } else {
-          status(
-            '⚠ ' +
-            ((result && result.message) ||
-              'Unexpected response from server.'),
-            'warning'
-          );
-        }
-      };
-
-      script.onerror = function() {
-        finish();
-
-        status(
-          'Could not contact Google Apps Script.\n' +
-          'Check the /exec URL and deployment permissions.',
-          'warning'
-        );
-      };
-
-      const url = new URL(API_URL);
-
-      url.searchParams.set('action', 'scan');
-      url.searchParams.set('barcode', code);
-      url.searchParams.set('callback', callback);
-      url.searchParams.set('_', String(Date.now()));
-
-      script.src = url.toString();
-      document.body.appendChild(script);
-    }
-
-    // Camera starts only when this button is pressed.
-    scanButton.addEventListener('click', startScanner);
-
-    // Manual barcode entry.
-    submitButton.addEventListener('click', function() {
-      sendBarcode(barcodeInput.value);
-    });
-
-    barcodeInput.addEventListener('keydown', function(event) {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        sendBarcode(this.value);
-      }
-    });
-  </script>
-</body>
-</html>
+    // --- UI ELEMENTS ---
+    const menuSection = document.getElementById('menu-section');
+    const scannerSection = document.getElementById('scanner-section');
+    const modeBadge = document.getElementById('mode-badge');
+    const statusBox = document.getElementById('

@@ -254,33 +254,42 @@
       padding: 13px 10px;
       font-size: 0.95rem;
     }
-
-    .dietary-editor {
-      display: none;
-      flex-direction: column;
-      gap: 10px;
-      padding: 14px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: #fff;
-    }
-
     .dietary-editor label {
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: var(--text);
-    }
+          font-size: 0.9rem;
+          font-weight: 700;
+          color: var(--text);
+     }
+  
+    .dietary-editor {
+  width: 100%;
+  min-width: 0;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
 
-    .dietary-editor textarea {
-      width: 100%;
-      min-height: 90px;
-      resize: vertical;
-      padding: 11px;
-      border: 1px solid #cbd5e1;
+.dietary-editor textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100px;
+  min-height: 100px;
+  max-height: 180px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
       border-radius: 8px;
-      font-size: 1rem;
-      line-height: 1.4;
+      font-size: 16px;
+      line-height: 1.5;
+      font-family: inherit;
       outline: none;
+      overflow-y: auto;
     }
 
     .dietary-editor textarea:focus {
@@ -336,7 +345,12 @@
     }
 
     @media (max-width: 380px) {
-      .modal-card { padding: 18px; }
+      .modal-card { padding: 18px; 
+                width: 100%;
+  min-width: 0;
+  max-width: 420px;
+  
+                  }
       .modal-actions .btn { flex-basis: 100%; }
     }
   </style>

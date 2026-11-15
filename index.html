@@ -564,25 +564,55 @@
     }
 
     // --- MODAL / POPUP INTERACTION ---
-    function openModal(data) {
-      document.getElementById('modal-barcode-display').textContent = `ID: ${data.barcode}`;
-      document.getElementById('person-name').textContent = `${data.first} ${data.last}`;
-      document.getElementById('person-school').textContent = data.school || 'N/A';
+    
+function openModal(data) {
+  document.getElementById('modal-barcode-display').textContent = `ID: ${data.barcode}`;
+  document.getElementById('person-name').textContent = `${data.first} ${data.last}`;
+  document.getElementById('person-school').textContent = data.school || 'N/A';
 
-      const confirmBtn = document.getElementById('confirm-btn');
+  const confirmBtn = document.getElementById('confirm-btn');
 
-      if (currentMode === 'register') {
-        document.getElementById('modal-title').textContent = 'Confirm Registration';
-        document.getElementById('dynamic-label').textContent = 'Media Consent';
-        document.getElementById('dynamic-value').textContent = data.mediaConsent || 'N/A';
-        
-        confirmBtn.textContent = 'Register';
-        confirmBtn.className = 'btn btn-primary';
-      } else {
-        document.getElementById('modal-title').textContent = 'Confirm Lunch Logging';
-        document.getElementById('dynamic-label').textContent = 'Dietary Restrictions';
-        document.getElementById('dynamic-value').textContent = data.dietaryRestrictions || 'None';
-        
+  if (currentMode === 'register') {
+    document.getElementById('modal-title').textContent = 'Confirm Registration';
+
+    // First additional field: Media Consent
+    document.getElementById('dynamic-label').textContent = 'Media Consent';
+    document.getElementById('dynamic-value').textContent = data.mediaConsent || 'N/A';
+
+    // Second additional field: Dietary Restrictions
+    let dietaryRow = document.getElementById('dietary-row');
+
+    if (!dietaryRow) {
+      dietaryRow = document.createElement('div');
+      dietaryRow.id = 'dietary-row';
+      dietaryRow.className = 'data-row';
+
+      dietaryRow.innerHTML = `
+        <span class="data-label">Dietary Restrictions</span>
+        <span class="data-value" id="dietary-value">---</span>
+      `;
+
+      document.querySelector('.modal-body').appendChild(dietaryRow);
+    }
+
+    document.getElementById('dietary-value').textContent =
+      data.dietaryRestrictions || 'None';
+
+    dietaryRow.style.display = 'flex';
+
+    confirmBtn.textContent = 'Register';
+    confirmBtn.className = 'btn btn-primary';
+
+    } else {
+      document.getElementById('modal-title').textContent = 'Confirm Lunch Logging';
+
+      document.getElementById('dynamic-label').textContent = 'Dietary Restrictions';
+      document.getElementById('dynamic-value').textContent =
+        data.dietaryRestrictions || 'None';
+
+      // Hide the additional dietary row in lunch mode
+      const dietaryRow = document.getElementById('dietary-row');
+      if (dietaryRow) dietaryRow.style.display = 'none';
         confirmBtn.textContent = 'Log';
         confirmBtn.className = 'btn btn-warning';
       }
@@ -590,6 +620,7 @@
       confirmBtn.disabled = false;
       modalOverlay.style.display = 'flex';
     }
+
 
     function closeModal(shouldResumeCamera = true) {
       modalOverlay.style.display = 'none';
